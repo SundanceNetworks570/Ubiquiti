@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>UniFi Updates Dashboard — Network, Protect, Switch, Gateways</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<!-- Auto-refresh once per day (86400 seconds) -->
+<meta http-equiv="refresh" content="86400" />
+<style>
+  :root{
+    --bg:#0b0f14;--panel:#121821;--ink:#e8eef6;--muted:#9fb1c7;--accent:#5cc8ff;
+    --chip:#1b2430;--ok:#27c281;--warn:#ffb020;--err:#ff6b6b;--border:#243142
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);
+    font:14px/1.6 system-ui,-apple-system,Segoe UI,Roboto,Inter,"Helvetica Neue",Arial,"Noto Sans"}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  header{padding:28px 16px 12px;max-width:1100px;margin:0 auto}
+  h1{font-size:20px;margin:0 0 6px}
+  .sub{color:var(--muted);font-size:13px}
+  .toolbar{display:flex;gap:12px;align-items:center;margin-top:10px;flex-wrap:wrap}
+  button,.chip{
+    background:var(--chip);color:var(--ink);border:1px solid var(--border);
+    padding:8px 12px;border-radius:999px;cursor:pointer
+  }
+  button:hover{filter:brightness(1.1)}
+  input[type="search"], input[type="number"]{
+    background:transparent;color:var(--ink);border:1px solid var(--border);
+    border-radius:8px;padding:6px 10px
+  }
+  main{max-width:1100px;margin:0 auto;padding:12px 16px 48px;display:grid;gap:16px}
+  section.panel{
+    background:linear-gradient(180deg,rgba(255,255,255,.02),rgba(255,255,255,0));
+    border:1px solid var(--border);border-radius:16px;padding:16px
+  }
+  .panel h2{margin:0 0 6px;font-size:16px}
+  .feed-meta{color:var(--muted);font-size:12px;margin-bottom:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .list{display:grid;gap:10px}
+  .item{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:12px}
+  .item a.title{font-weight:650}
+  .item .desc{color:var(--muted);font-size:13px;margin-top:6px}
+  .badges{display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap}
+  .badge{background:var(--chip);border:1px solid var(--border);padding:3px 8px;border-radius:999px;font-size:12px;color:var(--muted)}
+  .links{display:flex;gap:10px;flex-wrap:wrap;margin-top:8px}
+  .status{font-size:12px;margin-left:auto}
+  .ok{color:var(--ok)} .warn{color:var(--warn)} .err{color:var(--err)}
+  footer{max-width:1100px;margin:24px auto 64px;padding:0 16px;color:var(--muted);font-size:12px}
+  .grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
+  .ts{font-feature-settings:"tnum"}
+</style>
+</head>
+<body>
+<header>
+  <h1>UniFi Updates Dashboard</h1>
+  <div class="sub">Official release posts & downloads for UniFi Network (Controller), Protect, Switch firmware, and UniFi OS/Gateways.</div>
+  <div class="toolbar">
+    <button id="refreshBtn" title="Re-fetch all feeds">↻ Refresh</button>
+    <span class="chip">Last checked: <span id="lastChecked" class="ts">—</span></span>
+    <span class="chip">Items/feed: <span id="limitLabel">10</span></span>
+    <input id="limitInput" type="number" min="3" max="50" value="10" title="Items per feed" />
+    <input id="filterInput" type="search" placeholder="Filter (e.g. 8.1.127, UDM, USW)" style="min-width:220px" />
+  </div>
+</header>
+
+<main id="app" class="grid" aria-live="polite"></main>
+
+<footer>
+  <div>
+    Feeds read via <code>api.allorigins.win</code> CORS relay. For higher reliability, you can later swap to a tiny serverless function; this page will work as-is on GitHub Pages with no backend.
+  </div>
+</footer>
+
+<script>
+/* ====================== Config ====================== */
+const FEEDS = [
+  {
+    id: "network",
+    label: "UniFi Network (Controller)",
+    url: "https://community.ui.com/rss/releases/UniFi-Network-Application/e6712595-81bb-4829-8e42-9e2630fabcfe",
+    productHint: "Network"
+  },
+  {
+    id: "protect",
+    label: "UniFi Protect",
+    url: "https://community.ui.com/rss/releases/UniFi-Protect/aada5f38-35d4-4525-9235-b14bd320e4d0",
+    productHint: "Protect"
+  },
+  {
+    id: "switch",
+    label: "UniFi Switch (Firmware)",
+    url: "https://community.ui.com/rss/releases/UniFi-Switch/f5882c6b-e77f-45c1-b019-68fd20000c31",
+    productHint: "Switch"
+  },
+  {
+    id: "gateways",
+    label: "UniFi OS / Dream Machines (Gateways)",
+    url: "https://community.ui.com/rss/releases/UDM%20firmware/b0f0a740-021e-4027-a778-ceba983be74b",
+    productHint: "Gateway"
+  }
+];
+// optional extras you can add later:
+// APs: "https://community.ui.com/rss/releases/UniFi-Access-Point-Switch-LTE/9fc3b2fa-9e73-449a-924f-470e79884470"
+// Access: "https://community.ui.com/rss/releases/UniFi%20Access%20Controller/685a79da-5fdd-44b0-a479-268d8ea1d619"
+// Talk: "https://community.ui.com/rss/releases/UniFi%20Talk/327c4b1e-7f69-4c63-a4b8-315ba98f7b8f"
+
+const DEFAULT_LIMIT = 10;
+const CORS = "https://api.allorigins.win/raw?url="; // returns plain XML/HTML
+const CACHE_KEY = "unifi_updates_cache_v1";         // simple local cache
+
+/* ====================== Utils ====================== */
+const $ = (s, el=document) => el.querySelector(s);
+function fmtDate(x){const d=new Date(x);return isNaN(d)? "—" : d.toLocaleString()}
+function stripHtml(html){const t=document.createElement("div");t.innerHTML=html;return t.textContent||t.innerText||""}
+function parseRSS(xmlText){
+  const doc = new DOMParser().parseFromString(xmlText, "text/xml");
+  let items = [...doc.querySelectorAll("item")].map(it=>({
+    title: it.querySelector("title")?.textContent?.trim()||"",
+    link: it.querySelector("link")?.textContent?.trim()||it.querySelector("guid")?.textContent?.trim()||"",
+    pubDate: it.querySelector("pubDate")?.textContent?.trim()||it.querySelector("dc\\:date")?.textContent?.trim()||"",
+    description: it.querySelector("description")?.textContent||""
+  }));
+  if(items.length===0){
+    items = [...doc.querySelectorAll("entry")].map(it=>({
+      title: it.querySelector("title")?.textContent?.trim()||"",
+      link: it.querySelector("link")?.getAttribute("href")||"",
+      pubDate: it.querySelector("updated")?.textContent?.trim()||it.querySelector("published")?.textContent?.trim()||"",
+      description: it.querySelector("summary")?.textContent||it.querySelector("content")?.textContent||""
+    }));
+  }
+  return items;
+}
+function extractVersionFromTitle(title=""){
+  // typical versions like 9.1.120, 8.5.32, 3.1.6, etc.
+  const m = title.match(/\b\d+\.\d+(?:\.\d+){0,2}\b/);
+  return m ? m[0] : null;
+}
+// try to pull potential direct download links from description HTML
+function extractDownloadLinksFromDescription(html=""){
+  const container = document.createElement("div");
+  container.innerHTML = html;
+  const anchors = [...container.querySelectorAll("a[href]")];
+  // favor likely download domains/paths
+  const preferred = anchors.filter(a=>{
+    const h=a.getAttribute("href");
+    return /ui\.com\/download|ui\.com\/downloads|dl\.ui\.com|dl\.ubnt\.com/i.test(h);
+  });
+  return (preferred.length? preferred:anchors).map(a=>({href:a.href,text:a.textContent.trim()}));
+}
+
+/* ====================== Rendering ====================== */
+function renderFeedPanel(container, feed, items, status="ok", message=""){
+  const section = document.createElement("section");
+  section.className = "panel"; section.id = `panel-${feed.id}`;
+  section.innerHTML = `
+    <h2>${feed.label}</h2>
+    <div class="feed-meta">
+      <span class="badge">Source: <a href="${feed.url}" target="_blank" rel="noopener">RSS</a></span>
+      <span class="status ${status==="ok"?"ok":status==="warn"?"warn":"err"}">
+        ${status==="ok"?"Feed OK":status==="warn"?"Partial":"Error"}${message? " — "+message:""}
+      </span>
+    </div>
+    <div class="list"></div>
+  `;
+  container.appendChild(section);
+  const list = section.querySelector(".list");
+
+  if(!items || !items.length){
+    const empty = document.createElement("div");
+    empty.className="item";
+    empty.innerHTML = `<div class="desc">No items found.</div>`;
+    list.appendChild(empty);
+    return;
+  }
+
+  items.forEach(it=>{
+    const ver = extractVersionFromTitle(it.title) || "";
+    const when = it.pubDate ? fmtDate(it.pubDate) : "";
+    const snippet = stripHtml(it.description||"").trim().replace(/\s+/g," ");
+    const short = snippet.length>260 ? snippet.slice(0,257)+"…" : snippet;
+
+    // scan for direct downloads in description (if any)
+    const dl = extractDownloadLinksFromDescription(it.description||"")
+      .filter(x => /^https?:\/\//i.test(x.href));
+    // prefer a single most relevant download if there are many
+    let dlBest = dl.find(x=>/download|dl\./i.test(x.href)) || dl[0];
+
+    const div = document.createElement("div");
+    div.className="item";
+    div.setAttribute("data-text", [it.title, feed.productHint, ver, snippet].join(" ").toLowerCase());
+    div.innerHTML = `
+      <a class="title" href="${it.link}" target="_blank" rel="noopener">${it.title || "View release"}</a>
+      <div class="badges">
+        <span class="badge">${feed.productHint}</span>
+        ${ver? `<span class="badge">Version: ${ver}</span>`:""}
+        ${when? `<span class="badge ts">${when}</span>`:""}
+      </div>
+      ${short? `<div class="desc">${short}</div>`:""}
+      <div class="links">
+        <a href="${it.link}" target="_blank" rel="noopener">Release notes</a>
+        ${dlBest? `<span>·</span><a href="${dlBest.href}" target="_blank" rel="noopener">Direct download</a>`:""}
+      </div>
+    `;
+    list.appendChild(div);
+  });
+}
+
+/* ====================== Data Flow ====================== */
+async function fetchFeedRaw(url){
+  const res = await fetch(CORS + encodeURIComponent(url), {cache:"no-store"});
+  if(!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  return res.text();
+}
+async function loadAllFeeds(limit){
+  const app = document.getElementById("app");
+  app.innerHTML = "";
+  const results = {};
+  await Promise.allSettled(FEEDS.map(async feed=>{
+    try{
+      const xml = await fetchFeedRaw(feed.url);
+      const items = parseRSS(xml).slice(0, limit).map(x=>({
+        title:x.title, link:x.link, pubDate:x.pubDate, description:x.description
+      }));
+      results[feed.id] = {ok:true, items};
+      renderFeedPanel(app, feed, items, "ok", "");
+    }catch(err){
+      console.error("Feed error:", feed.label, err);
+      results[feed.id] = {ok:false, items:[]};
+      renderFeedPanel(app, feed, [], "err", err.message||"Fetch failed");
+    }
+  }));
+  const now = new Date();
+  $("#lastChecked").textContent = fmtDate(now);
+  localStorage.setItem(CACHE_KEY, JSON.stringify({
+    ts: now.toISOString(), limit, results
+  }));
+}
+function loadFromCacheIfFresh(maxAgeMinutes=60){
+  try{
+    const raw = localStorage.getItem(CACHE_KEY);
+    if(!raw) return false;
+    const data = JSON.parse(raw);
+    const ageMs = Date.now() - new Date(data.ts).getTime();
+    if(ageMs > maxAgeMinutes*60*1000) return false;
+
+    const app = document.getElementById("app");
+    app.innerHTML="";
+    FEEDS.forEach(feed=>{
+      const entry = data.results?.[feed.id];
+      if(entry?.ok){
+        renderFeedPanel(app, feed, entry.items, "ok", "");
+      }else{
+        renderFeedPanel(app, feed, [], "err", "Cached error");
+      }
+    });
+    $("#lastChecked").textContent = fmtDate(data.ts);
+    $("#limitInput").value = data.limit ?? DEFAULT_LIMIT;
+    $("#limitLabel").textContent = String(data.limit ?? DEFAULT_LIMIT);
+    return true;
+  }catch{ return false; }
+}
+
+/* ====================== Filter UI ====================== */
+function applyFilter(q){
+  const needle = (q||"").trim().toLowerCase();
+  document.querySelectorAll(".item").forEach(card=>{
+    const hay = card.getAttribute("data-text")||"";
+    card.style.display = hay.includes(needle) ? "" : "none";
+  });
+}
+
+/* ====================== Init ====================== */
+(function init(){
+  const cached = loadFromCacheIfFresh(120); // use cache if under 2 hours old
+  const limitStored = parseInt(localStorage.getItem("unifi_updates_limit")||"",10);
+  const limit = Number.isFinite(limitStored) ? Math.max(3, Math.min(limitStored, 50)) : (cached ? parseInt($("#limitInput").value,10) : DEFAULT_LIMIT);
+  $("#limitInput").value = limit; $("#limitLabel").textContent = String(limit);
+
+  if(!cached){ loadAllFeeds(limit); }
+
+  $("#refreshBtn").addEventListener("click", ()=>{
+    const v = parseInt($("#limitInput").value,10);
+    const val = Number.isFinite(v) ? Math.max(3, Math.min(v,50)) : DEFAULT_LIMIT;
+    $("#limitLabel").textContent = String(val);
+    localStorage.setItem("unifi_updates_limit", String(val));
+    loadAllFeeds(val);
+  });
+  $("#limitInput").addEventListener("change", ()=> $("#refreshBtn").click());
+  $("#filterInput").addEventListener("input", e=> applyFilter(e.target.value));
+})();
+</script>
+</body>
+</html>
