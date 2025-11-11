@@ -11,6 +11,16 @@
  *     npx http-server . -p 8000
  */
 (function () {
+  function normalizeUiLink(url) {
+    try {
+      const u = new URL(url, location.href);
+      if (u.hostname === "tw.ui.com") u.hostname = "ui.com";
+      return u.toString();
+    } catch {
+      return url;
+    }
+  }
+
   const FEEDS = {
     "UniFi Network Application (Controller)":
       "https://community.ui.com/rss/releases/UniFi-Network-Application/e6712595-81bb-4829-8e42-9e2630fabcfe",
@@ -70,7 +80,7 @@
     if (tds[2]) tds[2].textContent = data.description || data.title || "—";
     if (tds[3]) {
       const a = tds[3].querySelector("a") || document.createElement("a");
-      a.href = data.link || "#";
+      a.href = normalizeUiLink(data.link || "#");
       a.textContent = data.link ? "Release notes / download" : "—";
       if (!a.parentElement) {
         tds[3].textContent = "";
@@ -183,7 +193,7 @@
           for (const it of items) {
             const li = document.createElement("li");
             const a = document.createElement("a");
-            a.href = it.link;
+            a.href = normalizeUiLink(it.link);
             a.textContent = it.title;
             a.target = "_blank";
             li.appendChild(a);
